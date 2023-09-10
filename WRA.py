@@ -30,6 +30,9 @@ from matplotlib.ticker import ScalarFormatter
 file_path = 'Data/tildepsir_from_300kmLEO.xlsx'
 file_path_m = 'Data/tildepsir_from_300kmLEO_negative_impact_parameters.xlsx'
 
+file_path_cofactor_rearth = 'Data/1+n3fromEarth.xlsx'
+file_path_cofactor_rearth_m = 'Data/1+n3fromEarthb.xlsx'
+
 file_path_rearth= 'Data/tildepsir_from_Earth.xlsx'
 file_path_rearth_m= 'Data/tildepsir_from_Earth_negative_impact_parameters.xlsx'
 
@@ -38,8 +41,13 @@ file_path_BH_m= 'Data/tildepsi_from_BH_with_zeroQ_negative_impact_parameters.xls
 file_path_BH_zeroJ= 'Data/tildepsi_from_BH_with_zeroQ_zeroJ.xlsx'
 file_path_BH_m_zeroJ= 'Data/tildepsi_from_BH_zeroQ_zeroJ_negative_impact_parameters.xlsx'
 
+file_path_cofactor_BH = 'Data/1+n3fromBHzeroLz.xlsx'
+file_path_cofactor_BH_m = 'Data/1+n3fromBHzeroLzm.xlsx'
 
-def WRA_function(file_path,negative_params=False, Earth=True, integer_params=True):
+file_path_BH_zeroLz = 'Data/1+n3fromBHzeroLz.xlsx'
+file_path_BH_zeroLz_m = 'Data/1+n3fromBHzeroLzm.xlsx'
+
+def WRA_function(file_path,negative_params=False, Earth=True, integer_params=True, cofactor=False):
     if Earth:
         r_sender = 6378
         interval = 100
@@ -71,6 +79,20 @@ def WRA_function(file_path,negative_params=False, Earth=True, integer_params=Tru
         # Append the data from the current sheet to the main DataFrame
         data = data.append(df)
 
+    if cofactor:
+        for sheet in sheets:
+            if Earth:
+                df = pd.read_excel(file_path, sheet_name=sheet, header=None, names=['parameter', 'radius', 'cofactor'])
+            else:
+                df = pd.read_excel(file_path, sheet_name=sheet, header=None,
+                                   names=['parameter', 'radius', 'affine parameter', 'cofactor'])
+            df['parameter'] = sheet_to_parameter[sheet]
+            # For negative parameter, negating the parameters
+            if negative_params:
+                df['parameter'] = -1 * df['parameter']
+            # Append the data from the current sheet to the main DataFrame
+            data = data.append(df)
+
     "Filtering conditions to select specific data and Apply the filtering condition"
     if integer_params:
         condition = (
@@ -82,16 +104,17 @@ def WRA_function(file_path,negative_params=False, Earth=True, integer_params=Tru
                     | ((data['parameter'] > 1) & (data['parameter'] <= 5))
     data = data[condition]
 
-    "# Calculate the cumulative sum to integrate the 'infWRA' columns." \
-    "Here, we multiply by 100 to account for the fact that " \
-    "each data point in the dataset is sampled at an interval of 100 km " \
-    "in radial distance from the origin (x,y,z)=(0,0,0)."
-    data['integrated_infWRA'] = data.groupby('parameter')['infWRA'].cumsum() * interval
+    if not cofactor:
+        "# Calculate the cumulative sum to integrate the 'infWRA' columns." \
+        "Here, we multiply by 100 to account for the fact that " \
+        "each data point in the dataset is sampled at an interval of 100 km " \
+        "in radial distance from the origin (x,y,z)=(0,0,0)."
+        data['integrated_infWRA'] = data.groupby('parameter')['infWRA'].cumsum() * interval
     data['radius_minus_r_sender'] = data['radius'] - r_sender  # 6378 is the radius of Earth
 
     return data
-def plot_wigner_rotation(file_path, Earth=True, negative_params=False, ax=None):
-    data = WRA_function(file_path, Earth=Earth, negative_params = negative_params)
+def plot_wigner_rotation(file_path, Earth=True, negative_params=False, ax=None, cofactor=False, custom_ticks=False, show_legend=True):
+    data = WRA_function(file_path, Earth=Earth, negative_params = negative_params, cofactor=cofactor)
 
     # Get unique parameter values and sort them
     parameters = data['parameter'].unique()
@@ -108,16 +131,23 @@ def plot_wigner_rotation(file_path, Earth=True, negative_params=False, ax=None):
         colormap = cm.Blues(np.linspace(0.3, 1, len(parameters)))
     else:
         colormap = cm.Reds(np.linspace(1, 0.3, len(parameters)))
-
-    # Plot data for each parameter with a different color
-    for param, color in zip(parameters, colormap):
-        param_data = data[data['parameter'] == param]
-        label_str = r'$\frac{rk^\phi}{k^r} (\approx b_{ph})$' + f'= {param}'
-        ax.plot(param_data['radius_minus_r_sender'], param_data['integrated_infWRA'], label=label_str, color=color)
-
-    # Set axis labels, ticks, and legend
-    ax.set_xlabel('Altitude (km)', fontsize=18)
-    ax.set_ylabel('Wigner rotation angle (degree)', fontsize=18)
+    if cofactor:
+        # Plot data for each parameter with a different color
+        for param, color in zip(parameters, colormap):
+            param_data = data[data['parameter'] == param]
+            label_str = r'$\frac{rk^\phi}{k^r} (\approx b_{ph})$' + f'= {param}'
+            ax.plot(param_data['radius_minus_r_sender'], param_data['cofactor'], label=label_str, color=color)
+        # Set axis labels, ticks, and legend
+        ax.set_xlabel('Altitude (km)', fontsize=18)
+        ax.set_ylabel(r'$\frac{1}{1+n^\hat{3}}$', fontsize=18)
+    else:
+        for param, color in zip(parameters, colormap):
+            param_data = data[data['parameter'] == param]
+            label_str = r'$\frac{rk^\phi}{k^r} (\approx b_{ph})$' + f'= {param}'
+            ax.plot(param_data['radius_minus_r_sender'], param_data['integrated_infWRA'], label=label_str, color=color)
+        # Set axis labels, ticks, and legend
+        ax.set_xlabel('Altitude (km)', fontsize=18)
+        ax.set_ylabel('Wigner rotation angle (degree)', fontsize=18)
 
     if Earth:
         xmin, xmax = data['radius_minus_r_sender'].min(), data['radius_minus_r_sender'].max()
@@ -125,23 +155,6 @@ def plot_wigner_rotation(file_path, Earth=True, negative_params=False, ax=None):
         xmax = data.groupby('parameter')['radius_minus_r_sender'].max().min()
     ax.set_xlim(0, xmax)
 
-    if Earth:
-        step = 10000
-        xticks = np.arange(0, xmax, step=step)
-        ax.set_xticks(xticks)
-
-    ax.tick_params(axis='both', which='major', labelsize=15)
-
-    # Customize the legend
-    ncol_value = 2 if negative_params else 4
-    legend = ax.legend(
-        ncol=ncol_value,
-        loc='center',
-        fontsize=13,
-        bbox_to_anchor=(1.01, 1) if not negative_params else None
-    )
-
-    # Format axis labels with scientific notation
     for axis in [ax.xaxis, ax.yaxis]:
         formatter = ScalarFormatter(useMathText=True)
         formatter.set_scientific(True)
@@ -149,13 +162,31 @@ def plot_wigner_rotation(file_path, Earth=True, negative_params=False, ax=None):
         axis.set_major_formatter(formatter)
         axis.offsetText.set_fontsize(14)
 
-    # Set the y-axis scale to 'symlog'
     if Earth:
-     ax.set_yscale('symlog', linthresh=1e-8)
+        step = 10000
+        xticks = np.arange(0, xmax, step=step)
+        ax.set_xticks(xticks)
+        if not cofactor:
+            ax.set_yscale('symlog', linthresh=1e-8)
+
+
+
+    ax.tick_params(axis='both', which='major', labelsize=15)
+
+    if show_legend:
+        # Customize the legend
+        ncol_value = 2 if negative_params else 4
+        legend = ax.legend(
+            ncol=ncol_value,
+            loc='center',
+            fontsize=13,
+            bbox_to_anchor=(1.01, 1) if not negative_params else None
+        )
 
     # Tighten the layout
     plt.tight_layout()
     return ax
+
 def plot_wigner_rotation_for_both_positive_and_negative_impact_parameter(
         file_path_for_positive_impact_factor, file_path_for_negative_impact_factor):
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -167,7 +198,50 @@ def plot_wigner_rotation_for_both_positive_and_negative_impact_parameter(
     plt.savefig('Results/WRA_combined Earth' + '.svg', dpi=300, bbox_inches='tight')
 
     plt.show()
+def plot_cofactor_for_positive_impact_parameter(
+        file_path_for_positive_impact_factor):
+    fig, ax = plt.subplots(figsize=(8, 5))
 
+    plot_wigner_rotation(file_path_for_positive_impact_factor, ax=ax, cofactor=True, custom_ticks=False, show_legend=False)
+
+
+    plt.savefig('Results/cofactor_Earth_positive' + '.png', dpi=300, bbox_inches='tight')
+    plt.savefig('Results/cofactor_Earth_positive' + '.svg', dpi=300, bbox_inches='tight')
+
+    plt.show()
+def plot_cofactor_for_negative_impact_parameter_BH(
+        file_path_for_negative_impact_factor):
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    plot_wigner_rotation(file_path_for_negative_impact_factor,  Earth=False, negative_params=True, ax=ax, cofactor=True,
+                         custom_ticks=False,
+                         show_legend=False)
+    plt.savefig('Results/cofactor_BH_negative' + '.png', dpi=300, bbox_inches='tight')
+    plt.savefig('Results/cofactor_BH_negative' + '.svg', dpi=300, bbox_inches='tight')
+
+    plt.show()
+def plot_cofactor_for_positive_impact_parameter_BH(
+        file_path_for_positive_impact_factor):
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    plot_wigner_rotation(file_path_for_positive_impact_factor, ax=ax,  Earth=False, cofactor=True, custom_ticks=False, show_legend=False)
+
+
+    plt.savefig('Results/cofactor_BH_positive' + '.png', dpi=300, bbox_inches='tight')
+    plt.savefig('Results/cofactor_BH_positive' + '.svg', dpi=300, bbox_inches='tight')
+
+    plt.show()
+def plot_cofactor_for_negative_impact_parameter(
+        file_path_for_negative_impact_factor):
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    plot_wigner_rotation(file_path_for_negative_impact_factor, negative_params=True, ax=ax, cofactor=True,
+                         custom_ticks=False,
+                         show_legend=False)
+    plt.savefig('Results/cofactor_Earth_negative' + '.png', dpi=300, bbox_inches='tight')
+    plt.savefig('Results/cofactor_Earth_negative' + '.svg', dpi=300, bbox_inches='tight')
+
+    plt.show()
 def plot_wigner_rotation_difference(file_path1, file_path2):
     # Load data from the specified file paths and calculate the Wigner Rotation Angle (WRA) difference
     data_positive_impact_factor = WRA_function(file_path1, integer_params=False)
@@ -270,7 +344,13 @@ def plot_wigner_rotation_BH(file_path1, file_path2):
     plt.savefig('Results/WRA_BH' + '.png', dpi=300, bbox_inches='tight')
     plt.savefig('Results/WRA_BH' + '.svg', dpi=300, bbox_inches='tight')
     plt.show()
-
+def plot_polar_BH(file_path1, file_path2):
+    fig, ax = plt.subplots(figsize=(8, 5))
+    plot_wigner_rotation(file_path1, Earth=False, ax=ax)
+    plot_wigner_rotation(file_path2, Earth=False, negative_params=True, ax=ax)
+    plt.savefig('Results/polar_BH' + '.png', dpi=300, bbox_inches='tight')
+    plt.savefig('Results/polar_BH' + '.svg', dpi=300, bbox_inches='tight')
+    plt.show()
 def plot_wigner_rotation_BH_for_SI(file_path1, file_path2, file_path3, file_path4):
     data1 = WRA_function(file_path1, Earth=False)
     data2 = WRA_function(file_path2, Earth=False, negative_params=True)
@@ -345,3 +425,10 @@ plot_wigner_rotation_for_both_positive_and_negative_impact_parameter(file_path_r
 plot_wigner_rotation_difference(file_path, file_path_m)
 plot_wigner_rotation_BH(file_path_BH, file_path_BH_m)
 plot_wigner_rotation_BH_for_SI(file_path_BH, file_path_BH_m, file_path_BH_zeroJ, file_path_BH_m_zeroJ)
+plot_cofactor_for_positive_impact_parameter(file_path_cofactor_rearth)
+plot_cofactor_for_negative_impact_parameter(file_path_cofactor_rearth_m)
+
+plot_cofactor_for_positive_impact_parameter_BH(file_path_cofactor_BH)
+plot_cofactor_for_negative_impact_parameter_BH(file_path_cofactor_BH_m)
+
+plot_polar_BH(file_path_BH_zeroLz, file_path_BH_zeroLz_m)
